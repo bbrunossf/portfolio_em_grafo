@@ -32,7 +32,7 @@ function App() {
       >
         <TooltipProvider>
           <Toaster />
-          <WouterRouter base="/antv_v3_react1">
+          <WouterRouter base="/portfolio_em_grafo">
             <Routes />
         </WouterRouter>
         </TooltipProvider>

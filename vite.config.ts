@@ -11,5 +11,5 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-   base: "/antv_v3_react1/"
+   base: "/portfolio_em_grafo/"
 })

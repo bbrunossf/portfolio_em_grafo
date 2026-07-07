@@ -2,7 +2,7 @@
 
 **Visualize e gerencie a complexidade dos seus projetos técnicos como um grafo interativo.**
 
-[![Deploy to GitHub Pages](https://github.com/bbrunossf/antv_v3_react1/actions/workflows/deploy.yml/badge.svg)](https://github.com/bbrunossf/antv_v3_react1/actions/workflows/deploy.yml)
+[![Deploy to GitHub Pages](https://github.com/bbrunossf/portfolio_em_grafo/actions/workflows/deploy.yml/badge.svg)](https://github.com/bbrunossf/portfolio_em_grafo/actions/workflows/deploy.yml)
 
 ---
 
@@ -76,7 +76,7 @@ Ideal para engenheiros, pesquisadores e tech leads que desejam **documentar, exp
 ## Estrutura do Projeto
 
 ```
-antv_v3_react1/
+portfolio_em_grafo/
 ├── public/
 │   ├── favicon.svg
 │   ├── icons.svg
@@ -213,8 +213,8 @@ interface GraphEdge {
 ### Instalação
 
 ```bash
-git clone https://github.com/bbrunossf/antv_v3_react1.git
-cd antv_v3_react1
+git clone https://github.com/bbrunossf/portfolio_em_grafo.git
+cd portfolio_em_grafo
 npm install
 ```
 
@@ -252,7 +252,7 @@ npm run lint
 
 O projeto é hospedado no **GitHub Pages** com deploy automático via GitHub Actions.
 
-- **URL**: [https://bbrunossf.github.io/antv_v3_react1/](https://bbrunossf.github.io/antv_v3_react1/)
+- **URL**: [https://bbrunossf.github.io/portfolio_em_grafo/](https://bbrunossf.github.io/portfolio_em_grafo/)
 - **Branch**: `main`
 - **Workflow**: `.github/workflows/deploy.yml`
 - **Trigger**: push na branch `main`
@@ -266,7 +266,7 @@ O workflow executa:
 
 ### Configuração do GitHub Pages
 
-O repositório deve ter **Settings → Pages → Source: GitHub Actions** habilitado. O arquivo `vite.config.ts` define `base: "/antv_v3_react1/"` para que todos os assets sejam servidos com o prefixo correto.
+O repositório deve ter **Settings → Pages → Source: GitHub Actions** habilitado. O arquivo `vite.config.ts` define `base: "/portfolio_em_grafo/"` para que todos os assets sejam servidos com o prefixo correto.
 
 ---
 
@@ -304,4 +304,3 @@ Este projeto é privado.
 - [ ] Importação de arestas no JSON de entrada
 - [ ] Temas customizáveis
 - [ ] Filtros avançados por tipo, complexidade, período
-
