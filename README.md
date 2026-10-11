@@ -12,6 +12,10 @@ Tech Project Graph é uma aplicação web SPA que permite mapear projetos, ferra
 
 Ideal para engenheiros, pesquisadores e tech leads que desejam **documentar, explorar e compartilhar** o ecossistema técnico de seus projetos.
 
+### De onde isto veio
+
+O projeto começou como um exercício de recriar o **organograma da New York and Erie Railroad (1855)** — considerado o primeiro da história — e evoluiu por **sete experimentos em dois motores de grafo** (AntV G6 e Cytoscape.js) até a aplicação de hoje. O registro completo — o que cada tentativa era, o que ensinou, as medições que decidiram o motor e os testes que foram descartados — está em **[`docs/HISTORICO-projetos-de-grafo.md`](docs/HISTORICO-projetos-de-grafo.md)**.
+
 ---
 
 ## Funcionalidades
@@ -78,6 +82,8 @@ Ideal para engenheiros, pesquisadores e tech leads que desejam **documentar, exp
 
 ```
 portfolio_em_grafo/
+├── docs/
+│   └── HISTORICO-projetos-de-grafo.md  # Registro da evolução: 7 experimentos, 2 motores de grafo
 ├── public/
 │   ├── favicon.svg
 │   ├── icons.svg
