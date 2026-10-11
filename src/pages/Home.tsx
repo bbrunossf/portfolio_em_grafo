@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import { useGraphStore, visibleNodeIds } from '../hooks/graphStore';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { GraphCanvas } from '@/components/GraphCanvas';
+// Canvas em G6 (branch g6-canvas). Para voltar ao Cytoscape: '@/components/GraphCanvas'
+import { GraphCanvas } from '@/components/GraphCanvasG6';
 import { NodePanel } from '@/components/NodePanel';
 import { RelationPanel } from '@/components/RelationPanel';
 import { Header } from '@/components/Header';

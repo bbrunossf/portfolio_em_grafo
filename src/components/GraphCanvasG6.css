@@ -1,0 +1,124 @@
+/* ============================================================================
+ * Estilos do canvas em G6 — só o que é exclusivo dele.
+ *
+ * O fundo escuro e a grade vêm de GraphCanvas.css (classe `.graph-canvas`),
+ * compartilhada com a versão em Cytoscape: as duas desenham o mesmo palco.
+ *
+ * Nada aqui usa CSS Modules ou shadow DOM — os nós HTML do G6 são criados no
+ * DOM normal, então estas classes valem dentro dos cartões.
+ * ==========================================================================*/
+
+.g6-card {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f8fafc;
+  border-radius: 10px;
+  border-top: 4px solid var(--accent, #ff6b35);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-family: inherit;
+  transition: box-shadow 120ms ease;
+}
+
+/* Contorno do cartão selecionado, aplicado junto com o estado `selected`. */
+.g6-card--selecionado {
+  box-shadow:
+    0 0 0 3px rgba(255, 107, 53, 0.9),
+    0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Fora do foco (hover/busca): o estado do G6 não alcança nós HTML. */
+.g6-card--apagado {
+  opacity: 0.18;
+  filter: saturate(0.4);
+}
+
+.g6-card__topo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 4px;
+}
+
+.g6-card__nome {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.g6-card__complexidade {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent, #ff6b35);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.g6-card__corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 8px;
+  overflow: hidden;
+}
+
+.g6-card__periodo {
+  font-size: 9px;
+  color: #64748b;
+}
+
+.g6-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.g6-card__badge {
+  font-size: 9px;
+  line-height: 1.5;
+  color: #4338ca;
+  background: #e0e7ff;
+  padding: 0 5px;
+  border-radius: 6px;
+}
+
+.g6-card__badge--mais {
+  color: #475569;
+  background: #e2e8f0;
+}
+
+.g6-card__tarefas {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.g6-card__tarefa {
+  position: relative;
+  padding-left: 9px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.g6-card__tarefa::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--accent, #ff6b35);
+}
+
+.g6-card__tarefa--mais {
+  color: #94a3b8;
+  font-style: italic;
+}
