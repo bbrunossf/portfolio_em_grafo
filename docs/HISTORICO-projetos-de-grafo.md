@@ -382,6 +382,17 @@ novo:
    depois que a promise do `render()` resolve — e isso acontecia também no build de
    produção, não era efeito do StrictMode do modo de desenvolvimento.
 
+**Veredito (11/10/2026).** Rodou, ficou bom e o G6 pareceu **mais responsivo e mais rápido**
+que o Cytoscape; os cartões cumprem o que o Cytoscape não faz. Mas, **em uso, não há ganho
+sobre o Cytoscape**: o mesmo grafo, as mesmas interações, o mesmo resultado — custando 1,87×
+o peso. A decisão de motor não muda: **o Cytoscape segue o padrão e o `master` é quem está
+em produção**. O branch fica como **evidência e ponto de partida**: se a visão de "cartões
+ricos" voltar, o trabalho está feito e o caminho está medido.
+
+Ajustes finos que ficaram pendentes, se um dia for retomado: o sombreamento dos cartões, o
+layout de força (sobrepõe cartões), o arrasto não salva a posição, e a visão completa (63
+nós) fica densa — fonte de 7,7px na tela.
+
 ---
 
 ## A decisão de motor: por que ficou no Cytoscape
