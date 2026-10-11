@@ -1,16 +1,16 @@
 import React, { useEffect, useRef, useCallback, useMemo } from 'react';
 import CytoscapeComponent from 'react-cytoscapejs';
 import cytoscape from 'cytoscape';
-import cola from 'cytoscape-cola';
-import dagre from 'cytoscape-dagre';
 import coseBilkent from 'cytoscape-cose-bilkent';
-import { useGraphStore, NodeType, ProjetoNode } from '../hooks/graphStore';
+import {
+  useGraphStore,
+  visibleNodeIds,
+  NodeType,
+  ProjetoNode,
+} from '../hooks/graphStore';
 import type { LayoutType } from '../hooks/graphStore';
 import './GraphCanvas.css';
-//import { ListEnd } from 'lucide-react';
 
-cytoscape.use(cola);
-cytoscape.use(dagre);
 cytoscape.use(coseBilkent);
 
 const getNodeColor = (tipo: NodeType) => {
@@ -26,626 +26,633 @@ const getNodeColor = (tipo: NodeType) => {
   }
 };
 
+/** Enquadramento */
+const FIT_PADDING = 28;
+/** Teto do zoom no enquadramento — evita "encher" a tela quando há 3 nós. */
+const FIT_MAX_ZOOM = 1.5;
+
+/**
+ * Raios dos anéis, em coordenadas de modelo.
+ *
+ * Estes números são o orçamento visual inteiro: quanto maior o raio externo,
+ * menor o zoom do enquadramento e menor o rótulo na tela. Com 380 no anel de
+ * tags o fit fica em ~0,9; era 0,47 com os 432/654 anteriores.
+ */
+const RAIO_PROJETO = 175;
+
+/** Acima disso as ferramentas não cabem num anel só: sobraria menos que o rótulo. */
+const MAX_FERRAMENTAS_UM_ANEL = 14;
+
+/**
+ * Raios dos anéis para um dado recorte de dados.
+ *
+ * Estes números são o orçamento visual inteiro: quanto maior o raio externo,
+ * menor o zoom do enquadramento e menor o rótulo na tela. Com os 63 nós da
+ * visão completa o fit fica em ~0,92; com os 16 da visão essencial o anel
+ * externo cai para 255 e o enquadramento bate no teto.
+ */
+const aneisDe = (qtdFerramentas: number, qtdTags: number) => ({
+  projeto: RAIO_PROJETO,
+  ferramenta:
+    qtdFerramentas <= MAX_FERRAMENTAS_UM_ANEL && qtdTags === 0 ? [255] : [250, 315],
+  tag: qtdTags > 0 ? 380 : null,
+});
+
+type Aneis = ReturnType<typeof aneisDe>;
+
+
+/**
+ * Esticamento horizontal dos anéis.
+ *
+ * Um círculo num canvas largo (1600×827) usa só ~52% da largura e deixa duas
+ * faixas mortas nas laterais. Esticando o eixo X os anéis viram elipses, o
+ * grafo ocupa a tela e os nós ganham separação horizontal — que é justamente
+ * onde os rótulos colidem. O enquadramento continua limitado pela altura, então
+ * o zoom não cai.
+ */
+const X_STRETCH = 1.45;
+
+/**
+ * Ângulos que dividem a elipse em arcos de MESMO COMPRIMENTO.
+ *
+ * Numa elipse, passos iguais no parâmetro andam mais devagar nas pontas
+ * esquerda/direita e mais rápido no topo/base — ou seja, os nós ficavam
+ * amontoados justamente nas laterais, que é onde os rótulos colidiam. Aqui a
+ * divisão é por comprimento de arco (integrado numericamente), então o
+ * espaçamento fica uniforme em volta do anel.
+ */
+const angulosEspacados = (qtd: number, stretch: number): number[] => {
+  if (qtd <= 0) return [];
+
+  const passos = 720;
+  const acumulado: number[] = [0];
+  let total = 0;
+
+  for (let i = 1; i <= passos; i++) {
+    const t0 = ((i - 1) / passos) * 2 * Math.PI;
+    const t1 = (i / passos) * 2 * Math.PI;
+    total += Math.hypot(
+      stretch * (Math.cos(t1) - Math.cos(t0)),
+      Math.sin(t1) - Math.sin(t0)
+    );
+    acumulado.push(total);
+  }
+
+  const angulos: number[] = [];
+  let j = 0;
+
+  for (let k = 0; k < qtd; k++) {
+    const alvo = (k / qtd) * total;
+    while (j < passos && acumulado[j + 1] < alvo) j++;
+    const trecho = acumulado[j + 1] - acumulado[j] || 1;
+    const fracao = (alvo - acumulado[j]) / trecho;
+    angulos.push(((j + fracao) / passos) * 2 * Math.PI);
+  }
+
+  return angulos;
+};
+
+const posicionar = (
+  node: any,
+  center: { x: number; y: number },
+  raio: number,
+  angulo: number
+) => {
+  node.position({
+    x: center.x + raio * X_STRETCH * Math.cos(angulo),
+    y: center.y + raio * Math.sin(angulo),
+  });
+};
+
 interface GraphCanvasProps {
   onNodeSelect?: (nodeId: string | null) => void;
   searchTerm?: string;
 }
 
-// function compactConcentric(cy: any) {
-//     const center = {
-//         x: cy.width() / 2,
-//         y: cy.height() / 2
-//     };
+/* ───────────────────────── composição radial ───────────────────────── */
 
-//     // Raios escolhidos manualmente.
-//     const radius: Record<string, number> = {
-//         projeto: 0,
-//         ferramenta: 320,
-//         tag: 430
-//     };
+/**
+ * Centro em coordenadas de MODELO, tirado do bounding box.
+ *
+ * A versão anterior usava `cy.width() / 2` (pixels de tela), que só coincide
+ * com o centro do grafo quando o usuário não mexeu no pan/zoom — qualquer
+ * arrasto deslocava a composição inteira.
+ */
+const modelCenter = (cy: any) => {
+  const bb = cy.nodes().boundingBox();
+  return { x: (bb.x1 + bb.x2) / 2, y: (bb.y1 + bb.y2) / 2 };
+};
 
-//     cy.nodes().forEach((node: any) => {
-
-//         const tipo = node.data("tipo");
-
-//         const r = radius[tipo];
-
-//         if (r === undefined)
-//             return;
-
-//         const p = node.position();
-
-//         const dx = p.x - center.x;
-//         const dy = p.y - center.y;
-
-//         const angle = Math.atan2(dy, dx);
-
-//         node.position({
-//             x: center.x + r * Math.cos(angle),
-//             y: center.y + r * Math.sin(angle)
-//         });
-
-//     });
-
-//     cy.fit(undefined, 40);
-
-// }
-
-function spiralProjects(cy: any) {
-  console.log("Organizando projetos em espiral...");
-
-  const center = {
-    x: cy.width() / 2,
-    y: cy.height() / 2,
-  };
-
-  // Obtém apenas os projetos e ordena por data
+/**
+ * Projetos num anel, em ordem cronológica e no sentido horário.
+ *
+ * (Aqui existiu uma espiral: o raio crescia a cada projeto. A ideia era
+ * comunicar a passagem do tempo, mas visualmente virava um caracol desalinhado
+ * com os outros anéis. O anel mantém a ordem cronológica e fica coerente com o
+ * resto da composição.)
+ *
+ * `deslocamento` gira a ORDEM (qual projeto começa o anel), não a geometria —
+ * girar a elipse a deixaria de pé num canvas largo.
+ */
+function ringProjects(
+  cy: any,
+  center: { x: number; y: number },
+  deslocamento: number,
+  aneis: Aneis
+) {
   const projetos = cy
     .nodes('[tipo="projeto"]')
     .sort((a: any, b: any) =>
-      (a.data("data_inicio") || "").localeCompare(
-        b.data("data_inicio") || ""
-      )
+      (a.data('data_inicio') || '').localeCompare(b.data('data_inicio') || '')
     );
 
-  // Agrupa os projetos por ano
-  const grupos = new Map<number, any[]>();
+  if (projetos.length === 0) return;
 
-  projetos.forEach((node: any) => {
-    const ano = Number(node.data("data_inicio")?.substring(0, 4));
+  const base = angulosEspacados(projetos.length, X_STRETCH);
 
-    if (!grupos.has(ano)) {
-      grupos.set(ano, []);
-    }
-
-    grupos.get(ano)!.push(node);
+  projetos.forEach((node: any, i: number) => {
+    posicionar(node, center, aneis.projeto, base[(i + deslocamento) % base.length]);
   });
+}
 
-  // Lista de anos em ordem crescente
-  const anos = [...grupos.keys()].sort((a, b) => a - b);
+/**
+ * Ferramentas e tags em anéis externos, preservando o ângulo que o layout base
+ * deu para cada nó (é o layout base que decide a ordem em volta do círculo).
+ */
+function outerRings(
+  cy: any,
+  center: { x: number; y: number },
+  aneis: Aneis,
+  deslocamento: number
+) {
+  const porAngulo = (tipo: string) =>
+    cy
+      .nodes(`[tipo="${tipo}"]`)
+      .map((node: any) => {
+        const p = node.position();
+        return { node, angulo: Math.atan2(p.y - center.y, p.x - center.x) };
+      })
+      .sort((a: any, b: any) => a.angulo - b.angulo);
 
-  // Configurações da espiral
-  const raioInicial = 40;
-  const incrementoRaio = 90;
+  const aneisFerramenta = aneis.ferramenta;
+  const ferramentas = porAngulo('ferramenta');
 
-  // Quanto a espiral gira entre um ano e outro
-  const incrementoAngulo = Math.PI / 3; // 60°
-
-  anos.forEach((ano, indiceAno) => {
-
-    const grupo = grupos.get(ano)!;
-
-    const raio = raioInicial + indiceAno * incrementoRaio;
-
-    const anguloCentral = indiceAno * incrementoAngulo;
-
-    // Abre mais o arco conforme aumenta a quantidade de projetos
-    const abertura = Math.min(
-      Math.PI / 2,      // máximo de 90°
-      grupo.length * 0.18
+  // Cada anel é dividido por comprimento de arco (não pelo espaçamento que veio
+  // do layout base), então os nós ficam equidistantes ao longo da elipse.
+  aneisFerramenta.forEach((raio: number, indiceAnel: number) => {
+    const doAnel = ferramentas.filter(
+      (_item: any, i: number) => i % aneisFerramenta.length === indiceAnel
     );
+    const base = angulosEspacados(doAnel.length, X_STRETCH);
 
-    const passo =
-      grupo.length > 1
-        ? abertura / (grupo.length - 1)
-        : 0;
-
-    grupo.forEach((node: any, indiceProjeto: number) => {
-
-      const angulo =
-        grupo.length === 1
-          ? anguloCentral
-          : anguloCentral - abertura / 2 + indiceProjeto * passo;
-
-      node.position({
-        x: center.x + raio * Math.cos(angulo),
-        y: center.y + raio * Math.sin(angulo),
-      });
-
+    doAnel.forEach((item: any, i: number) => {
+      posicionar(item.node, center, raio, base[(i + deslocamento) % base.length]);
     });
-
   });
 
-  cy.fit(undefined, 40);
-}
+  const raioTag = aneis.tag;
+  if (raioTag !== null) {
+    const tags = porAngulo('tag');
+    const base = angulosEspacados(tags.length, X_STRETCH);
 
-function compactOuterRings(cy: any) {
-  console.log("compactando os aneis...");
-
-    const center = {
-        x: cy.width()/2,
-        y: cy.height()/2
-    };
-
-    const radius = {
-        ferramenta:420,
-        tag:540
-    };
-
-    cy.nodes().forEach((node:any)=>{
-        const tipo=node.data("tipo");
-        if(tipo==="projeto")
-            return;
-        const r = radius[tipo as keyof typeof radius];
-        if(!r)
-            return;
-        const p=node.position();
-        const angle=Math.atan2(
-            p.y-center.y,
-            p.x-center.x
-        );
-
-        node.position({
-            x:center.x+r*Math.cos(angle),
-            y:center.y+r*Math.sin(angle)
-        });
+    tags.forEach((item: any, i: number) => {
+      posicionar(item.node, center, raioTag, base[(i + deslocamento) % base.length]);
     });
-
-    cy.fit(undefined,40);
+  }
 }
 
-function buildLayoutConfig(_cy: any, type: LayoutType, randomize: boolean): any {
+/** Projetos no anel interno + ferramentas e tags nos anéis externos. */
+function composeRadial(cy: any, deslocamento: number, aneis: Aneis) {
+  const center = modelCenter(cy);
+  ringProjects(cy, center, deslocamento, aneis);
+  outerRings(cy, center, aneis, deslocamento);
+}
+
+/* ────────────────────────────── layouts ────────────────────────────── */
+
+const byTipo = (node: any) => {
+  switch (node.data('tipo')) {
+    case 'projeto':
+      return 100;
+    case 'ferramenta':
+      return 50;
+    default:
+      return 10;
+  }
+};
+
+const byDataInicio = (a: any, b: any) =>
+  (a.data('data_inicio') || '').localeCompare(b.data('data_inicio') || '');
+
+function buildLayoutConfig(type: LayoutType, shuffle: boolean): any {
+  // `fit: false` de propósito: o enquadramento acontece no `layoutstop`,
+  // depois da composição. Fazer o fit antes deixava a visão enquadrando
+  // posições intermediárias.
   const base: any = {
     animate: true,
     animationDuration: 500,
-    nodeRepulsion: 3000,
-    avoidOverlap: true,
-    refresh: 5,
-    //maxSimulationTime: 3000,
-    fit: true,
-    padding: 30,
+    fit: false,
+    padding: FIT_PADDING,
   };
 
   switch (type) {
-    case 'concentric':
+    case 'aneis':
+      // O concêntrico aqui só define a ORDEM dos nós em volta do círculo e os
+      // ângulos de partida; as posições finais vêm do composeRadial().
       return {
         ...base,
         name: 'concentric',
-
-        concentric: (node: any) => {
-          switch (node.data('tipo')) {
-            case 'projeto':
-              return 100;
-            case 'ferramenta':
-              return 50;
-            default:
-              return 10;
-          }
-        },
-
+        concentric: byTipo,
         levelWidth: () => 1,
-
-        // Pode deixar pequeno, pois depois ajustaremos manualmente.
-        minNodeSpacing: 2,
+        minNodeSpacing: 40,
         startAngle: Math.PI / 2,
         clockwise: true,
-
-        // sort: (a: any, b: any) =>
-        //   (a.data('data_inicio') || '').localeCompare(
-        //     b.data('data_inicio') || ''
-        //   ),
-        sort: (a: any, b: any) =>
-          (a.data("data_inicio") || "")
-          .localeCompare(b.data("data_inicio") || ""),
-
-        animate: true,
-        animationDuration: 500
-      };
-
-    case 'cose':
-      return {
-        ...base,
-        name: 'cose',
-        directed: false,
-        nodeRepulsion: randomize ? 400000 : 4000,
-        avoidOverlap: true,
-        nodeSpacing: 50,
-        componentSpacing: 100,
+        sort: byDataInicio,
       };
 
     case 'cose-bilkent':
       return {
         ...base,
         name: 'cose-bilkent',
-        idealEdgeLength: 100,
-        nodeRepulsion: 4500,
-        gravity: 0.25,
+        idealEdgeLength: 110,
+        nodeRepulsion: 9000,
+        gravity: 0.15,
         numIter: 2500,
-      };
-
-    case 'dagre':
-      return {
-        ...base,
-        name: 'dagre',
-        rankDir: 'TB',
-        nodeSep: 50,
-        rankSep: 100,
-        edgeSep: 10,
+        randomize: shuffle,
+        nodeDimensionsIncludeLabels: true,
       };
 
     default:
-      return { ...base, name: 'concentric' };
+      return { ...base, name: 'concentric', concentric: byTipo, minNodeSpacing: 40 };
   }
 }
 
+/* ───────────────────────────── componente ───────────────────────────── */
 
 export const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeSelect, searchTerm }) => {
   const cyRef = useRef<any>(null);
-  //const initializedRef = useRef(false);
 
   // Refs estáveis para callbacks — evita que handleCyInit mude de referência
   const onNodeSelectRef = useRef(onNodeSelect);
   onNodeSelectRef.current = onNodeSelect;
   const selectNodeRef = useRef(useGraphStore.getState().selectNode);
   const updateNodeRef = useRef(useGraphStore.getState().updateNode);
+
   const layoutTrigger = useGraphStore((state) => state.layoutTrigger);
-
-
-
   const nodes = useGraphStore((state) => state.nodes);
   const edges = useGraphStore((state) => state.edges);
   const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
   const selectNode = useGraphStore((state) => state.selectNode);
   const updateNode = useGraphStore((state) => state.updateNode);
+  const layoutType = useGraphStore((state) => state.layoutType);
+  const viewMode = useGraphStore((state) => state.viewMode);
 
-  const layoutType = useGraphStore((s) => s.layoutType);
-  //const layoutTrigger = useGraphStore((s) => s.layoutTrigger);
+  selectNodeRef.current = selectNode;
+  updateNodeRef.current = updateNode;
 
-  // Mantém refs atualizados para o callback estável
-   selectNodeRef.current = selectNode;
-   updateNodeRef.current = updateNode;
+  // Recorte visível (essencial x completa) e os raios de anel que combinam
+  // com ele — menos nós pedem menos anéis, o que sobe o zoom do enquadramento.
+  const visiveis = useMemo(
+    () => visibleNodeIds(nodes, edges, viewMode),
+    [nodes, edges, viewMode]
+  );
 
-   // Build Cytoscape elements — posições vão em `position`, não em `data`
-  const elements = useMemo(
-    () => [
-      ...nodes.map((node) => ({
+  const aneis = useMemo(() => {
+    const qtd = (tipo: string) =>
+      nodes.filter((n) => visiveis.has(n.id) && n.tipo === tipo).length;
+    return aneisDe(qtd('ferramenta'), qtd('tag'));
+  }, [nodes, visiveis]);
+
+  // runAndSaveLayout é um useCallback com deps [] de propósito (é chamado de
+  // dentro de callbacks antigos do cytoscape), então lê os raios por ref.
+  const aneisRef = useRef(aneis);
+  aneisRef.current = aneis;
+
+  /**
+   * Build Cytoscape elements — posições vão em `position`, não em `data`.
+   *
+   * Nas arestas o nó de PROJETO é sempre a origem. O dado original ora traz
+   * projeto→tag, ora tag→projeto; normalizar aqui (a) deixa o gradiente
+   * sempre correndo de projeto para tag e (b) mantém o hover consistente.
+   */
+  const elements = useMemo(() => {
+    const tipoDe = new Map(nodes.map((n) => [n.id, n.tipo]));
+    const aparece = (id: string) => visiveis.has(id);
+
+    return [
+      ...nodes.filter((node) => aparece(node.id)).map((node) => ({
         data: {
           id: node.id,
           label: node.nome,
           tipo: node.tipo,
-          data_inicio: node.tipo === 'projeto'
-            ? (node as ProjetoNode).data_inicio : undefined,
+          data_inicio:
+            node.tipo === 'projeto' ? (node as ProjetoNode).data_inicio : undefined,
         },
-        // 🔑 Posição no lugar correto para o Cytoscape respeitar
         position:
-          node.x != null && node.y != null
-            ? { x: node.x, y: node.y }
-            : undefined,
+          node.x != null && node.y != null ? { x: node.x, y: node.y } : undefined,
       })),
-      ...edges.map((edge) => {
+      ...edges.filter((edge) => aparece(edge.source) && aparece(edge.target)).map((edge) => {
+        const tipoSrc = tipoDe.get(edge.source);
+        const tipoTgt = tipoDe.get(edge.target);
+
+        // Garante que a origem seja o projeto quando houver um
+        const inverter =
+          tipoSrc !== 'projeto' && tipoTgt === 'projeto';
+
+        const origemId = inverter ? edge.target : edge.source;
+        const destinoId = inverter ? edge.source : edge.target;
+        const origem = nodes.find((n) => n.id === origemId);
+        const destino = nodes.find((n) => n.id === destinoId);
+
         const data: any = {
           id: edge.id,
-          source: edge.source,
-          target: edge.target,
+          source: origemId,
+          target: destinoId,
         };
-        const src = nodes.find((n) => n.id === edge.source);
-        const tgt = nodes.find((n) => n.id === edge.target);
 
-        // Determina o tipo de relação para estilização
-        if (
-          (src?.tipo === 'projeto' && tgt?.tipo === 'ferramenta') ||
-          (src?.tipo === 'ferramenta' && tgt?.tipo === 'projeto')
-        ) {
+        if (destino?.tipo === 'ferramenta') {
           data.tipo_relacao = 'ferramenta';
-        } else if (
-          (src?.tipo === 'projeto' && tgt?.tipo === 'tag') ||
-          (src?.tipo === 'tag' && tgt?.tipo === 'projeto')
-        ) {
+        } else if (destino?.tipo === 'tag') {
           data.tipo_relacao = 'tag';
-        }
-
-        if (src?.tipo === 'projeto' && tgt?.tipo === 'tag') {
-          const tagEntry = (src as ProjetoNode).tags?.find(
-            (t) => t.nome.toLowerCase() === tgt.nome.toLowerCase()
+          const tagEntry = (origem as ProjetoNode)?.tags?.find(
+            (t) => t.nome.toLowerCase() === destino.nome.toLowerCase()
           );
-          if (tagEntry) {
-            data.peso = tagEntry.peso;
-          }
+          if (tagEntry) data.peso = tagEntry.peso;
         }
 
-        return { data, classes: 'edge-hidden' };
+        return { data };
       }),
+    ];
+  }, [nodes, edges, visiveis]);
 
-    ],
-    [nodes, edges],
-  );
-
-  const stylesheet = [
-    {
-      selector: 'node',
-      style: {
-        'background-color': (ele: any) => getNodeColor(ele.data('tipo')),
-        "background-opacity" : 0.3,
-        'label': 'data(label)',
-        'color': '#fff',
-        'border-width': 2,
-        'border-color': (ele: any) => {
-          const hex = getNodeColor(ele.data('tipo'));
-          const r = parseInt(hex.slice(1, 3), 16);
-          const g = parseInt(hex.slice(3, 5), 16);
-          const b = parseInt(hex.slice(5, 7), 16);
-          return `rgba(${r}, ${g}, ${b}, 0.5)`;
+  const stylesheet = useMemo(
+    () => [
+      /* ── Nós ────────────────────────────────────────────────────────── */
+      {
+        selector: 'node',
+        style: {
+          'background-color': (ele: any) => getNodeColor(ele.data('tipo')),
+          // Antes 0.3: a paleta do README estava lá, mas quase transparente
+          // sobre o fundo escuro — o grafo parecia apagado.
+          'background-opacity': 0.92,
+          'border-width': 2,
+          'border-color': (ele: any) => getNodeColor(ele.data('tipo')),
+          'border-opacity': 0.4,
+          label: 'data(label)',
+          color: '#EAF0F7',
+          'font-size': 13,
+          'font-weight': 500,
+          'text-wrap': 'wrap',
+          'text-overflow-wrap': 'whitespace',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-margin-y': 5,
+          // Halo de verdade atrás do texto (antes: preto com opacidade 0.15)
+          'text-background-color': '#0F0F1E',
+          'text-background-opacity': 0.85,
+          'text-background-padding': '3px',
+          'text-background-shape': 'roundrectangle',
+          // Anti-label-soup: o rótulo some quando encolhe abaixo disso.
+          // Sobrescrito por tipo logo abaixo.
+          'min-zoomed-font-size': 9,
+          'transition-property': 'background-color, border-color, opacity',
+          'transition-duration': '150ms',
         },
-
-        'text-background-color': '#000',
-        'text-background-opacity': 0.15,
-        'text-background-padding': '2px',
       },
-    },
-    {
+      {
         selector: 'node[tipo="projeto"]',
         style: {
           shape: 'ellipse',
-          'width': 60,
-          'height': 60,
-          'text-valign': 'center',
-          'text-halign': 'right',
-          'text-margin-x': 10,
-          'font-size': 16,
-          'text-wrap': 'wrap',
-          'text-max-width': '260px',
-          'text-overflow-wrap': 'whitespace',
-        }
+          width: 58,
+          height: 58,
+          'font-size': 14,
+          'font-weight': 600,
+          'text-max-width': '120px',
+          // Projeto é o conteúdo: sempre rotulado, em qualquer zoom.
+          'min-zoomed-font-size': 0,
+        },
       },
-
       {
         selector: 'node[tipo="ferramenta"]',
         style: {
           shape: 'ellipse',
-          'width': 50,
-          'height': 50,
-          'text-valign': 'center',
-          'text-halign': 'center',
-          'font-size': 16,
-        }
+          width: 34,
+          height: 34,
+          'font-size': 12,
+          // 90px em vez de 110px: o rótulo quebra em duas linhas em vez de
+          // invadir o vizinho do anel.
+          'text-max-width': '90px',
+          'min-zoomed-font-size': 9,
+        },
       },
-
       {
         selector: 'node[tipo="tag"]',
         style: {
           shape: 'diamond',
-          'width': 40,
-          'height': 40,
-          'text-valign': 'center',
-          'text-halign': 'right',
-          'font-size': 22,
-          'text-wrap': 'wrap',
-          'text-max-width': '160px',
-          'text-overflow-wrap': 'whitespace',
-        }
-      },
-    {
-      selector: 'node:selected',
-      style: {
-        'border-color': '#FFD700',
-        'border-width': 3,
-      },
-    },
-    // {
-    //   selector: 'node:hover',
-    //   style: {
-    //     'border-width': 3,
-    //   },
-    // },
-    // Aresta padrão (outros tipos de relação)
-    {
-      selector: 'edge',
-      style: {
-        'line-color': '#D1D5DB',
-        'width': 1.5,
-        'opacity': 0.5,
-        'curve-style': 'straight-triangle',
-      },
-    },
-    // Aresta projeto ↔ ferramenta (sólida, azul ciano)
-    {
-      selector: 'edge[tipo_relacao="ferramenta"]',
-      style: {
-        'line-color': '#00D9FF',
-        'line-style': 'solid',
-        'width': 2.5,
-        'opacity': 0.8,
-        'curve-style': 'straight-triangle',
-      },
-    },
-    // Aresta projeto ↔ tag (dashed, verde)
-    {
-      selector: 'edge[tipo_relacao="tag"]',
-      style: {
-        'line-color': '#10B981',
-        'line-style': 'dashed',
-        'width': (ele: any) => {
-          const peso = ele.data('peso');
-          return peso ? Math.max(1, peso * 2) : 2;
+          width: 26,
+          height: 26,
+          'font-size': 12,
+          'text-max-width': '95px',
+          'min-zoomed-font-size': 9,
         },
-        'opacity': 0.8,
-        'curve-style': 'bezier',
       },
-    },
-
-    {
-      selector: '.faded',
-      style: {
-        'opacity': 0.15,
-        'text-opacity': 0,
+      {
+        selector: 'node:selected',
+        style: {
+          'border-color': '#FFD700',
+          'border-width': 4,
+          'border-opacity': 1,
+          'background-opacity': 1,
+        },
       },
-    },
-    {
-      selector: '.edge-hidden',
-      style: {
-        'opacity': 0,
+      {
+        selector: 'node.search-hit',
+        style: {
+          'border-color': '#FFD700',
+          'border-width': 4,
+          'border-opacity': 1,
+          'background-opacity': 1,
+        },
       },
-    },
 
+      /* ── Arestas ────────────────────────────────────────────────────── */
+      {
+        selector: 'edge',
+        style: {
+          // Retas: num arranjo radial elas saem do centro para fora, o que dá
+          // para seguir com o olho. E, ao contrário do bezier, não inflam o
+          // bounding box no fit (era parte do motivo do zoom baixo).
+          'curve-style': 'straight',
+          'line-color': '#8C97AC',
+          // 77 arestas em cor cheia engolem o grafo; em repouso elas são só
+          // um fio de contexto e ganham cor no foco (edge-active).
+          width: 0.8,
+          opacity: 0.16,
+          'transition-property': 'opacity, line-color, width',
+          'transition-duration': '150ms',
+        },
+      },
+      {
+        selector: 'edge[tipo_relacao="ferramenta"]',
+        style: {
+          'line-color': '#00D9FF',
+        },
+      },
+      {
+        // Linha de relação com tag: gradiente do laranja do projeto até o
+        // verde da tag. Comunica a relação pela própria cor em vez de só
+        // tracejar (que com 23 linhas virava textura).
+        selector: 'edge[tipo_relacao="tag"]',
+        style: {
+          'line-fill': 'linear-gradient',
+          'line-gradient-stop-colors': ['#FF6B35', '#10B981'],
+          'line-gradient-stop-positions': [0, 1],
+          'line-style': 'solid',
+        },
+      },
+      // Arestas do nó em foco (hover ou resultado de busca)
+      {
+        selector: 'edge.edge-active',
+        style: {
+          opacity: 0.95,
+          width: (ele: any) => {
+            const peso = ele.data('peso');
+            return peso ? Math.max(1.6, peso * 1.6) : 2;
+          },
+        },
+      },
 
-  ];
+      /* ── Realce ─────────────────────────────────────────────────────── */
+      {
+        selector: '.faded',
+        // `opacity` já apaga o rótulo junto, não precisa de text-opacity
+        style: {
+          opacity: 0.12,
+        },
+      },
+    ],
+    []
+  );
 
-  // ── Helper: roda layout e salva posições ──
+  /* ── Helper: roda layout, compõe, enquadra e salva posições ── */
   const runAndSaveLayout = useCallback((cy: any, type: LayoutType, shuffle: boolean) => {
-    const config = buildLayoutConfig(cy, type, shuffle);
-    const layout = cy.layout(config);
+    const layout = cy.layout(buildLayoutConfig(type, shuffle));
+
     layout.on('layoutstop', () => {
-      spiralProjects(cy);
-      compactOuterRings(cy);
+      // A composição radial é exclusiva do layout "aneis". Antes ela rodava
+      // depois de QUALQUER layout, então o seletor do header não tinha efeito
+      // nenhum — os outros layouts só mudavam os ângulos.
+      if (type === 'aneis') {
+        // "Embaralhar" desloca a ORDEM dos nós no anel; girar a geometria
+        // deixaria a elipse de pé e desperdiçaria a largura da tela.
+        composeRadial(cy, shuffle ? Math.floor(Math.random() * 1000) : 0, aneisRef.current);
+      }
+
+      // Fit só agora, com as posições finais — e só dos nós, porque enquadrar
+      // as arestas fazia os pontos de controle inflarem o enquadramento.
+      const alvo = cy.nodes().length ? cy.nodes() : undefined;
+      cy.fit(alvo, FIT_PADDING);
+      if (cy.zoom() > FIT_MAX_ZOOM) {
+        cy.zoom({
+          level: FIT_MAX_ZOOM,
+          renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
+        });
+      }
 
       cy.nodes().forEach((node: any) => {
         const pos = node.position();
         updateNodeRef.current(node.id(), { x: pos.x, y: pos.y });
       });
-
-
     });
+
     layout.run();
-    cy.fit(undefined, 40);
   }, []);
 
+  const handleCyInit = useCallback(
+    (cy: any) => {
+      // Se é a mesma instância, ignora — evita reexecução em re-renders
+      if (cyRef.current === cy) return;
+      cyRef.current = cy;
 
+      // Em dev o grafo fica exposto no console: cy.nodes(), cy.zoom(),
+      // cy.fit() e companhia são o jeito prático de inspecionar um canvas,
+      // que o DevTools não mostra no DOM.
+      if (import.meta.env.DEV) (window as any).__cy = cy;
 
-  const handleCyInit = useCallback((cy: any) => {
-    // Se é a mesma instância, ignora — evita reexecução em re-renders
-    if (cyRef.current === cy) return;
-    cyRef.current = cy;
+      // Highlight — conectados em foco, resto esmaecido
+      cy.on('mouseover', 'node', (evt: any) => {
+        const connected = evt.target.closedNeighborhood();
+        const connectedEdges = connected.edges();
+        cy.elements().difference(connected).addClass('faded');
+        connected.removeClass('faded');
+        cy.edges().not(connectedEdges).removeClass('edge-active');
+        connectedEdges.addClass('edge-active').removeClass('faded');
+      });
 
-    // Hover effect — alternativa ao seletor inválido :hover
-    // cy.on('mouseover', 'node', (evt: any) => {
-    //   evt.target.style('border-width', 3);
-    // });
-    // cy.on('mouseout', 'node', (evt: any) => {
-    //   evt.target.style('border-width', 2);
-    // });
+      cy.on('mouseout', 'node', () => {
+        cy.elements().removeClass('faded');
+        cy.edges().removeClass('edge-active');
+      });
 
-    // Highlight — conectados em foco, resto esmaecido
-    // Highlight — conectados em foco, resto esmaecido
-    cy.on('mouseover', 'node', (evt: any) => {
-      const connected = evt.target.closedNeighborhood();
-      cy.elements().difference(connected).addClass('faded');
-      connected.removeClass('faded');
-      // Exibe as arestas conectadas ao nó sob o mouse
-      connected.edges().removeClass('edge-hidden');
-    });
+      // Node click
+      cy.on('tap', 'node', (evt: any) => {
+        const nodeId = evt.target.id();
+        selectNodeRef.current(nodeId);
+        onNodeSelectRef.current?.(nodeId);
+      });
 
-    cy.on('mouseout', 'node', () => {
-      cy.elements().removeClass('faded');
-      // Oculta todas as arestas novamente
-      cy.edges().addClass('edge-hidden');
-    });
+      // Node drag
+      cy.on('dragfree', 'node', (evt: any) => {
+        const nodeId = evt.target.id();
+        const pos = evt.target.position();
+        updateNodeRef.current(nodeId, { x: pos.x, y: pos.y });
+      });
 
-
-
-
-    // Node click
-    cy.on('tap', 'node', (evt: any) => {
-      const nodeId = evt.target.id();
-      selectNodeRef.current(nodeId);
-      onNodeSelectRef.current?.(nodeId);
-    });
-
-    // Canvas click
-    // cy.on('tap', (evt: any) => {
-    //   if (evt.target === cy) {
-    //     selectNodeRef.current(null);
-    //     onNodeSelectRef.current?.(null);
-    //     cy.elements().unselect();
-    //   }
-    // });
-
-    // Node drag
-    cy.on('dragfree', 'node', (evt: any) => {
-      const nodeId = evt.target.id();
-      const pos = evt.target.position();
-      updateNodeRef.current(nodeId, { x: pos.x, y: pos.y });
-    });
-
-    // Layout inicial
-    runAndSaveLayout(cy, useGraphStore.getState().layoutType, true);
-     }, [runAndSaveLayout]);
-
-    // Layout
-    //const layout = cy.layout({
-      // name: 'cose',
-      // directed: false,
-      // animate: true,
-      // animationDuration: 500,
-      // nodeRepulsion: 400000,
-      // avoidOverlap: true,
-      // nodeSpacing: 50,
-      // componentSpacing: 100,
-      // name: 'cola',
-      // animate: true,
-      // refresh: 1,
-      // maxSimulationTime: 4000,
-      // ungrabifyWhileSimulating: false, // so you can't drag nodes during layout
-      // fit: true, // on every layout reposition of nodes, fit the viewport
-      // padding: 30, // padding around the simulation
-      // boundingBox: undefined, // constrain layout bounds; { x1, y1, x2, y2 } or { x1, y1, w, h }
-      // nodeDimensionsIncludeLabels: false, // whether labels should be included in determining the space used by a node
-
-      // positioning options
-    //   randomize: true, // use random node positions at beginning of layout
-    //   avoidOverlap: true, // if true, prevents overlap of node bounding boxes
-    //   handleDisconnected: true, // if true, avoids disconnected components from overlapping
-    //   convergenceThreshold: 0.01, // when the alpha value (system energy) falls below this value, the layout stops
-    //   flow: undefined, // use DAG/tree flow layout if specified, e.g. { axis: 'y', minSeparation: 30 }
-    //   alignment: undefined, // relative alignment constraints on nodes, e.g. {vertical: [[{node: node1, offset: 0}, {node: node2, offset: 5}]], horizontal: [[{node: node3}, {node: node4}], [{node: node5}, {node: node6}]]}
-    //   gapInequalities: undefined, // list of inequality constraints for the gap between the nodes, e.g. [{"axis":"y", "left":node1, "right":node2, "gap":25}]
-    //   centerGraph: true, // adjusts the node positions initially to center the graph (pass false if you want to start the layout from the current position)
-    // });
-
-
+      // Layout inicial
+      runAndSaveLayout(cy, useGraphStore.getState().layoutType, true);
+    },
+    [runAndSaveLayout]
+  );
 
   // Update selected state
   useEffect(() => {
     if (!cyRef.current) return;
-
     cyRef.current.elements().unselect();
-    if (selectedNodeId) {
-      cyRef.current.getElementById(selectedNodeId).select();
-    }
+    if (selectedNodeId) cyRef.current.getElementById(selectedNodeId).select();
   }, [selectedNodeId]);
-
 
   // Layout manual (botão "Embaralhar")
   useEffect(() => {
     if (!cyRef.current || layoutTrigger === 0) return;
-
     const timer = setTimeout(() => {
       if (!cyRef.current) return;
-
       runAndSaveLayout(cyRef.current, useGraphStore.getState().layoutType, true);
-         }, 100);
-         return () => clearTimeout(timer);
-       }, [layoutTrigger, runAndSaveLayout]);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [layoutTrigger, runAndSaveLayout]);
 
-
-  // Realce de busca
   // Realce de busca
   useEffect(() => {
-    if (!cyRef.current) return;
-    cyRef.current.elements().removeClass('faded');
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    cy.elements().removeClass('faded search-hit');
+    cy.edges().removeClass('edge-active');
 
     const term = searchTerm?.trim();
-    if (!term) {
-      // Sem busca ativa → esconde todas as arestas
-      cyRef.current.edges().addClass('edge-hidden');
-      return;
-    }
+    if (!term) return;
 
     const lower = term.toLowerCase();
-    const matched = cyRef.current.nodes().filter((n: any) =>
-      n.data('label').toLowerCase().includes(lower)
-    );
-
+    const matched = cy.nodes().filter((n: any) => n.data('label').toLowerCase().includes(lower));
     if (matched.length === 0) return;
 
-    cyRef.current.elements().addClass('faded');
-    matched.removeClass('faded');
-    matched.connectedEdges().removeClass('faded').removeClass('edge-hidden');
+    cy.elements().addClass('faded');
+    matched.removeClass('faded').addClass('search-hit');
+    matched.connectedEdges().removeClass('faded').addClass('edge-active');
     matched.neighborhood().removeClass('faded');
   }, [searchTerm]);
 
-
-
-  // Reexecuta o layout cola quando novos nós são adicionados
+  // Reexecuta o layout quando novos nós são adicionados
   const prevNodeCountRef = useRef(nodes.length);
   useEffect(() => {
     if (!cyRef.current) return;
@@ -656,56 +663,40 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeSelect, searchTe
     // Ignora montagem inicial (prev=0) e remoções
     if (nodes.length <= prev) return;
 
-    // Timeout para o cytoscape processar os novos elementos
     const timer = setTimeout(() => {
       if (!cyRef.current) return;
-
       runAndSaveLayout(cyRef.current, useGraphStore.getState().layoutType, false);
-         }, 150);
-         return () => clearTimeout(timer);
-       }, [nodes.length, runAndSaveLayout]);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [nodes.length, runAndSaveLayout]);
 
-      // const layout = cyRef.current.layout({
-      //   name: 'cola',
-      //   animate: true,
-      //   refresh: 1,
-      //   maxSimulationTime: 4000,
-      //   ungrabifyWhileSimulating: false,
-      //   fit: true,
-      //   padding: 30,
-      //   randomize: false,            // usa posições atuais como ponto de partida
-      //   avoidOverlap: true,
-      //   handleDisconnected: true,
-      //   convergenceThreshold: 0.01,
-      //   centerGraph: false,          // não centraliza — preserva o arranjo existente
-      // });
-
-    //   layout.on('layoutstop', () => {
-    //     cyRef.current.nodes().forEach((node: any) => {
-    //       const pos = node.position();
-    //       updateNodeRef.current(node.id(), { x: pos.x, y: pos.y });
-    //     });
-    //   });
-
-    //   layout.run();
-    // }, 150);
-
-  //   return () => clearTimeout(timer);
-  // }, [nodes.length]);
-
-  // ── Troca de layout ──
-    const prevLayoutRef = useRef(layoutType);
-    useEffect(() => {
+  // Troca de layout
+  const prevLayoutRef = useRef(layoutType);
+  useEffect(() => {
+    if (!cyRef.current) return;
+    if (prevLayoutRef.current === layoutType) return;
+    prevLayoutRef.current = layoutType;
+    const timer = setTimeout(() => {
       if (!cyRef.current) return;
-      if (prevLayoutRef.current === layoutType) return;
-      prevLayoutRef.current = layoutType;
-      const timer = setTimeout(() => {
-        if (!cyRef.current) return;
-        runAndSaveLayout(cyRef.current, layoutType, true);
-      }, 100);
-      return () => clearTimeout(timer);
-    }, [layoutType, runAndSaveLayout]);
+      runAndSaveLayout(cyRef.current, layoutType, true);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [layoutType, runAndSaveLayout]);
 
+  // Troca de visão (essencial x completa): os elementos mudam, então os anéis
+  // precisam ser recalculados para o novo conjunto — 16 nós pedem um anel
+  // externo só, e é isso que faz a fonte ficar grande.
+  const prevViewRef = useRef(viewMode);
+  useEffect(() => {
+    if (!cyRef.current) return;
+    if (prevViewRef.current === viewMode) return;
+    prevViewRef.current = viewMode;
+    const timer = setTimeout(() => {
+      if (!cyRef.current) return;
+      runAndSaveLayout(cyRef.current, useGraphStore.getState().layoutType, true);
+    }, 140);
+    return () => clearTimeout(timer);
+  }, [viewMode, runAndSaveLayout]);
 
   return (
     <div className="graph-canvas">
@@ -716,9 +707,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeSelect, searchTe
         stylesheet={stylesheet}
         cy={handleCyInit}
         userZoomingEnabled={true}
-        //wheelSensitivity={1}
-        minZoom={0.5}
-        maxZoom={2.5}
+        minZoom={0.45}
+        maxZoom={2.8}
         boxSelectionEnabled={false}
       />
     </div>

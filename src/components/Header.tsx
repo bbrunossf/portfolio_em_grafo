@@ -1,8 +1,9 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Plus, Link2, Download, Trash2, Wrench, Tag, Shuffle, Search, X } from 'lucide-react';
+import { Plus, Link2, Download, Trash2, Wrench, Tag, Shuffle, Search, X, Layers } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { ViewMode } from '../hooks/graphStore';
 
 import { useState} from 'react';
 import './Header.css';
@@ -21,6 +22,10 @@ interface HeaderProps {
   onSearch: (term: string) => void;
   layoutType: string;
   onLayoutChange: (type: string) => void;
+  viewMode: ViewMode;
+  onToggleView: () => void;
+  visiveisCount: number;
+  totalCount: number;
 
 }
 
@@ -36,6 +41,10 @@ export const Header: React.FC<HeaderProps> = ({
   onSearch,
   layoutType,
   onLayoutChange,
+  viewMode,
+  onToggleView,
+  visiveisCount,
+  totalCount,
 
 }) => {
   const [inputValue, setInputValue] = useState('');
@@ -100,12 +109,27 @@ export const Header: React.FC<HeaderProps> = ({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="concentric">Concêntrico</SelectItem>
-              <SelectItem value="cose">CoSe</SelectItem>
-              <SelectItem value="cose-bilkent">CoSe Bilkent</SelectItem>
-              <SelectItem value="dagre">Dagre</SelectItem>
+              <SelectItem value="aneis">Anéis (radial)</SelectItem>
+              <SelectItem value="cose-bilkent">CoSe Bilkent (força)</SelectItem>
             </SelectContent>
           </Select>
+
+          <Button
+            onClick={onToggleView}
+            size="sm"
+            variant="outline"
+            className="h-8 gap-2 text-xs"
+            title={
+              viewMode === 'essencial'
+                ? `Mostrando projetos e ferramentas compartilhadas (${visiveisCount} dos ${totalCount} nós). Clique para ver tudo.`
+                : `Mostrando todos os ${totalCount} nós. Clique para ver só o essencial.`
+            }
+          >
+            <Layers size={14} />
+            <span className="hidden xl:inline">
+              {viewMode === 'essencial' ? `Essencial ${visiveisCount}` : `Completo ${totalCount}`}
+            </span>
+          </Button>
         </div>
 
 

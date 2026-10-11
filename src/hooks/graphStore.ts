@@ -3,7 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 
 export type NodeType = 'projeto' | 'ferramenta' | 'tag';
 export type ComplexityLevel = 'Baixa' | 'Média' | 'Alta';
-export type LayoutType = 'concentric' | 'cose' | 'cose-bilkent' | 'dagre';
+export type LayoutType = 'aneis' | 'cose-bilkent';
+
+/** Recorte de dados exibido no grafo. */
+export type ViewMode = 'essencial' | 'completa';
 
 
 export interface ProjetoNode {
@@ -59,6 +62,8 @@ interface GraphStore {
   triggerLayout: () => void;
   layoutType: LayoutType;
   setLayoutType: (type: LayoutType) => void;
+  viewMode: ViewMode;
+  setViewMode: (mode: ViewMode) => void;
 
 
   // Node actions
@@ -81,12 +86,61 @@ interface GraphStore {
   clearAll: () => void;
 }
 
+/** Uma ferramenta entra na visão essencial a partir deste nº de projetos. */
+const MIN_PROJETOS_ESSENCIAL = 2;
+
+/**
+ * Ids que aparecem no grafo numa dada visão.
+ *
+ * `essencial` = projetos + ferramentas COMPARTILHADAS (usadas por 2+ projetos):
+ * 16 dos 63 nós no dado atual. O resto é cauda longa — 31 das 38 ferramentas
+ * aparecem num projeto só, e cada uma custa um rótulo disputando espaço com os
+ * vizinhos do anel. As tags ficam de fora porque duplicam ferramentas (LLM e
+ * Python aparecem nos dois papéis) e são a terceira dimensão que mais polui.
+ */
+export const visibleNodeIds = (
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  mode: ViewMode
+): Set<string> => {
+  if (mode === 'completa') return new Set(nodes.map((n) => n.id));
+
+  const tipoDe = new Map(nodes.map((n) => [n.id, n.tipo]));
+  const projetosPorNo = new Map<string, Set<string>>();
+
+  edges.forEach((e) => {
+    const tipoA = tipoDe.get(e.source);
+    const tipoB = tipoDe.get(e.target);
+    const projeto = tipoA === 'projeto' ? e.source : tipoB === 'projeto' ? e.target : undefined;
+    const outro = tipoA === 'projeto' ? e.target : tipoB === 'projeto' ? e.source : undefined;
+    if (!projeto || !outro) return;
+
+    if (!projetosPorNo.has(outro)) projetosPorNo.set(outro, new Set());
+    projetosPorNo.get(outro)!.add(projeto);
+  });
+
+  const visiveis = new Set<string>();
+  nodes.forEach((n) => {
+    if (n.tipo === 'projeto') {
+      visiveis.add(n.id);
+    } else if (
+      n.tipo === 'ferramenta' &&
+      (projetosPorNo.get(n.id)?.size ?? 0) >= MIN_PROJETOS_ESSENCIAL
+    ) {
+      visiveis.add(n.id);
+    }
+  });
+
+  return visiveis;
+};
+
 export const useGraphStore = create<GraphStore>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
   layoutTrigger: 0,
-  layoutType: 'concentric',
+  layoutType: 'aneis',
+  viewMode: 'essencial',
 
   addNode: (node) => {
     const id = uuidv4();
@@ -163,6 +217,10 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
   setLayoutType: (type) => {
     set({ layoutType: type });
+  },
+
+  setViewMode: (mode) => {
+    set({ viewMode: mode });
   },
 
 

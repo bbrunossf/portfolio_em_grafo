@@ -18,7 +18,8 @@ Ideal para engenheiros, pesquisadores e tech leads que desejam **documentar, exp
 
 ### Visualização do Grafo
 - **Canvas interativo** com zoom (scroll), pan (arrastar) e reorganização de nós
-- **4 algoritmos de layout**: Concêntrico, CoSe, CoSe Bilkent e Dagre
+- **2 layouts**: **Anéis (radial)** — o padrão, com os projetos num anel cronológico e ferramentas e tags em anéis externos — e **CoSe Bilkent** (força), para explorar agrupamentos
+- **Visão Essencial / Completo** — abre com os projetos e as ferramentas compartilhadas (16 dos 63 nós, sem colisão de rótulo); um botão no header revela o grafo completo
 - **Realce por proximidade** — ao passar o mouse sobre um nó, conexões relacionadas se destacam e o restante esmaece
 - **Busca textual** com destaque visual do nó correspondente e suas conexões
 - **Arraste de nós** com salvamento automático da posição
@@ -27,8 +28,8 @@ Ideal para engenheiros, pesquisadores e tech leads que desejam **documentar, exp
 - **3 tipos de nós**:  
   | Tipo | Cor | Forma | Descrição |
   |------|-----|-------|-----------|
-  | Projeto | Laranja `#FF6B35` | Retângulo arredondado | Projetos com datas, tarefas, ferramentas, tags, etc. |
-  | Ferramenta | Azul ciano `#00D9FF` | Elipse | Tecnologias e ferramentas utilizadas |
+  | Projeto | Laranja `#FF6B35` | Elipse grande (58px) | Projetos com datas, tarefas, ferramentas, tags, etc. |
+  | Ferramenta | Azul ciano `#00D9FF` | Elipse pequena (34px) | Tecnologias e ferramentas utilizadas |
   | Tag | Verde `#10B981` | Diamante | Tags de conhecimento, tarefas ou resultados |  
   
 
@@ -62,7 +63,7 @@ Ideal para engenheiros, pesquisadores e tech leads que desejam **documentar, exp
 | Framework | React 19 + TypeScript |
 | Build | Vite 8 |
 | Visualização | Cytoscape.js + react-cytoscapejs |
-| Layouts | cytoscape-cola, cytoscape-dagre, cytoscape-cose-bilkent |
+| Layouts | cytoscape-cose-bilkent + composição radial própria (anéis) |
 | Roteamento | wouter (SPA client-side) |
 | Estilo | Tailwind CSS v4 + shadcn/ui |
 | Estado | Zustand |
@@ -195,8 +196,12 @@ interface GraphEdge {
 - Clique no **X** para limpar a busca
 
 ### Alterar o layout
-- Use o dropdown no header para escolher entre Concêntrico, CoSe, CoSe Bilkent ou Dagre
-- Clique no ícone de **embaralhar** 🔀 para randomizar as posições
+- Use o dropdown no header para escolher entre **Anéis (radial)** e **CoSe Bilkent (força)**
+- Clique no ícone de **embaralhar** 🔀 para rodar a ordem dos nós nos anéis
+
+### Alternar a visão
+- O botão de visão no header (**Essencial 16** / **Completo 63**) troca o recorte: Essencial mostra os projetos e as ferramentas usadas por 2 ou mais projetos; Completo mostra os 63 nós, incluindo as tags
+- A legenda no canto do canvas acompanha o recorte: "Total: 16 (+47 ocultos)"
 
 ### Exportar/Importar
 - **Exportar**: baixa um arquivo JSON com todos os nós (as arestas não são incluídas na exportação)
@@ -253,9 +258,9 @@ npm run lint
 O projeto é hospedado no **GitHub Pages** com deploy automático via GitHub Actions.
 
 - **URL**: [https://bbrunossf.github.io/portfolio_em_grafo/](https://bbrunossf.github.io/portfolio_em_grafo/)
-- **Branch**: `main`
+- **Branch**: `master`
 - **Workflow**: `.github/workflows/deploy.yml`
-- **Trigger**: push na branch `main`
+- **Trigger**: push na branch `master`
 
 O workflow executa:
 1. Checkout do código
@@ -299,8 +304,9 @@ Este projeto é privado.
 
 ## TODO
 
-- [ ] Visualização cronológica dos projetos (timeline)
-- [ ] Agrupamento alternativo dos nós (clusterização)
+- [x] Recorte de visão (Essencial/Completo) — as ferramentas de uso único ficam ocultas por padrão
+- [ ] Agrupamento das ferramentas por categoria (é o que ainda aperta a leitura nos 63 nós)
+- [ ] Visualização cronológica explícita (a ordem do anel já é cronológica; falta uma legenda de anos)
 - [ ] Importação de arestas no JSON de entrada
 - [ ] Temas customizáveis
 - [ ] Filtros avançados por tipo, complexidade, período

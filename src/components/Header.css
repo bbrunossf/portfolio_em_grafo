@@ -12,15 +12,20 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 2rem;
+  gap: 1rem;
 }
 
+/*
+ * `flex: 1 0 auto` (e não `flex: 1` com `min-width: 0`) é o que impede o
+ * campo de busca de cobrir o título: o h1 tem `white-space: nowrap`, então
+ * com um container encolhível o texto transbordava por baixo do input
+ * seguinte em vez de empurrá-lo.
+ */
 .header-title {
   display: flex;
   align-items: center;
   gap: 1rem;
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
 }
 
 .logo {
@@ -43,12 +48,46 @@
   white-space: nowrap;
 }
 
+/* Busca e seletor de layout mantêm o tamanho; as ações é que quebram linha */
+.header-search,
+.header-layout {
+  flex-shrink: 0;
+}
+
+.header-layout {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+/*
+ * Os 8 botões com rótulo não cabem ao lado do título em telas médias; sem
+ * isto o "Limpar" sobra sozinho numa segunda linha. Viram ícones (cada um já
+ * tem title= para o tooltip). O limite é generoso porque o título, a busca, o
+ * seletor de layout e o botão de visão também ocupam a linha.
+ */
+@media (max-width: 1740px) {
+  .header-actions button span {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .header-content {
+    flex-wrap: wrap;
+  }
+
+  .header-title {
+    flex: 0 0 100%;
+  }
 }
 
 @media (max-width: 768px) {
@@ -63,6 +102,11 @@
 
   .header-title h1 {
     font-size: 1.25rem;
+  }
+
+  .header-search,
+  .header-layout {
+    width: 100%;
   }
 
   .header-actions {

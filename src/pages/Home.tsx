@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useGraphStore } from '../hooks/graphStore';
+import { useGraphStore, visibleNodeIds } from '../hooks/graphStore';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { GraphCanvas } from '@/components/GraphCanvas';
 import { NodePanel } from '@/components/NodePanel';
@@ -146,6 +146,11 @@ export default function Home() {
 
   const layoutType = useGraphStore((s) => s.layoutType);
   const setLayoutType = useGraphStore((s) => s.setLayoutType);
+  const viewMode = useGraphStore((s) => s.viewMode);
+  const setViewMode = useGraphStore((s) => s.setViewMode);
+
+  // Quantos nós o recorte atual põe no canvas (o header mostra esse número)
+  const visiveisCount = visibleNodeIds(nodes, edges, viewMode).size;
 
 
 
@@ -397,7 +402,10 @@ export default function Home() {
         onSearch={handleSearch}
         layoutType={layoutType}
         onLayoutChange={(type) => setLayoutType(type as any)}
-
+        viewMode={viewMode}
+        onToggleView={() => setViewMode(viewMode === 'essencial' ? 'completa' : 'essencial')}
+        visiveisCount={visiveisCount}
+        totalCount={nodes.length}
       />
 
       <div className="graph-container">
