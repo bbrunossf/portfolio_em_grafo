@@ -332,6 +332,67 @@ e comparei o que o seletor de layout dizia com o que o canvas mostrava.
   (conclusão: sucesso) e o site no ar passou a servir o build novo — `index-fYg3IGxI.js`,
   com o botão "Essencial 16" e o seletor "Anéis (radial)", sem erros no console.
 
+### A versão em G6 — branch `g6-canvas` (11/10/2026)
+
+O Cytoscape ganhou por medição, mas a pergunta "e com cartões ricos?" ficou aberta. Ela
+virou um branch no mesmo repositório, para as duas opções conviverem:
+
+- **`master`** — Cytoscape, em produção.
+- **`g6-canvas`** — a mesma aplicação com o canvas em AntV G6. Muda só o `Home` (uma
+  linha: o import de `GraphCanvasG6`). Store, painéis, `mydata.json` e deploy são os mesmos.
+
+**O que foi reaproveitado do que ia ser apagado.** O `antv_v1` já era um portfólio em G6 v5
+com cartões HTML — o `projectCardHTML`, o `toolNodeHTML` e os plugins (`toolbar`,
+`tooltip`, `contextmenu`). Ele **não funcionava**, por dois bugs de API:
+
+| Bug | Efeito | Correção |
+|---|---|---|
+| `type: 'html'` dentro de `style` | O G6 ignorava o tipo e desenhava o nó padrão (bolinha azul) | `type` no **nível do nó** |
+| `innerHTML: (d) => card(d)` (função) | `appendChild` recebia a função: *"parameter 1 is not of type 'Node'"* | passar o **string pronto** |
+
+Ou seja: o que parecia "o G6 não serve" eram duas linhas. Corrigidas, os cartões aparecem.
+
+**A composição teve de ser refeita.** O layout `concentric` do G6 usa o tamanho do nó como
+degrau entre anéis; com cartões de 204px cada anel saltava ~100px além do necessário e o
+enquadramento caía para **0,402** — fonte de 4,8px no cartão, exatamente o defeito que o
+Cytoscape tinha antes. Os anéis passaram a ser calculados aqui, com a lógica que ficou boa
+no Cytoscape: mesmo comprimento de arco entre vizinhos, elipse esticada 1,5× e um anel por
+tipo de nó.
+
+**Medições (build de produção, canvas 1600×827):**
+
+| | Cytoscape (`master`) | G6 (`g6-canvas`) |
+|---|---|---|
+| Enquadramento — visão essencial (16 nós) | 0,923 | **0,928** |
+| Fonte do cartão na tela | 11,1px (nós simples) | **11,1px** |
+| Enquadramento — visão completa (63 nós) | 0,936 | 0,645 (fonte 7,7px) |
+| Bundle | **282 kB gzip** | 527 kB gzip (1,87×) |
+
+Três detalhes de API que só apareceram rodando, registrados porque vão ser esbarrados de
+novo:
+
+1. o contêiner HTML do G6 ancora no **canto superior esquerdo**: sem `dx`/`dy` de
+   `-metade da caixa` o cartão fica meia caixa fora do lugar e a composição sai do centro
+   (medido: 434px de margem à esquerda contra 242px à direita, com corte embaixo);
+2. o estado `inactive` do G6 **não** altera a opacidade de um nó `html` — o visual dele é
+   DOM, não forma de canvas. O escurecimento do hover e da busca é feito por classe CSS, e
+   para isso o cartão carrega o próprio id em `data-no`;
+3. chamar `setElementState` com o **primeiro render ainda em voo** estoura dentro do G6
+   (*"Cannot read properties of undefined (reading 'draw')"*). Os efeitos só mexem no grafo
+   depois que a promise do `render()` resolve — e isso acontecia também no build de
+   produção, não era efeito do StrictMode do modo de desenvolvimento.
+
+**Veredito (11/10/2026).** Rodou, ficou bom e o G6 pareceu **mais responsivo e mais rápido**
+que o Cytoscape; os cartões cumprem o que o Cytoscape não faz. Mas, **em uso, não há ganho
+sobre o Cytoscape**: o mesmo grafo, as mesmas interações, o mesmo resultado — custando 1,87×
+o peso. A decisão de motor não muda: **o Cytoscape segue o padrão e o `master` é quem está
+em produção**. O branch fica como **evidência e ponto de partida**: se a visão de "cartões
+ricos" voltar, o trabalho está feito e o caminho está medido.
+
+Ajustes finos que ficaram pendentes, se um dia for retomado: o sombreamento dos cartões, o
+layout de força (sobrepõe cartões), o arrasto não salva a posição, e a visão completa (63
+nós) fica densa — fonte de 7,7px na tela.
+
 ---
 
 ## A decisão de motor: por que ficou no Cytoscape
