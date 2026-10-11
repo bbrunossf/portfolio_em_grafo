@@ -298,7 +298,7 @@ O design segue a abordagem **Organic Network Aesthetic**, inspirada em design bi
 
 ## Licença
 
-Este projeto é privado.
+Projeto **público**: o código está em [github.com/bbrunossf/portfolio_em_grafo](https://github.com/bbrunossf/portfolio_em_grafo). Não há arquivo de licença formal — e sem ele os direitos ficam reservados ao autor, mesmo com o repositório aberto.
 
 ---
 
